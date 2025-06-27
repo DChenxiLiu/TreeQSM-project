@@ -63,17 +63,9 @@ if ischar(Clouds) || isstring(Clouds)
   names = names(I,1);
   names = sort(names);
   nt = max(size(names)); % number of trees/point clouds
-else
-  P = Clouds;
-  nt = 1;
-end
-inputs(nt).PatchDiam1 = 0;
-
-
-%% Estimate the PatchDiam and BallRad parameters
-for i = 1:nt
-  if nt > 1
-    % Select point cloud
+  inputs(nt).PatchDiam1 = 0;
+  for i = 1:nt
+    % Select point cloud from matobj
     P = matobj.(names{i});
     inputs(i) = Inputs;
     inputs(i).name = names{i};
@@ -82,7 +74,77 @@ for i = 1:nt
     inputs(i).savetxt = 0;
     inputs(i).savemat = 0;
     inputs(i).disp = 0;
+
+    %% Estimate the stem diameter close to bottom
+    % Define height
+    Hb = min(P(:,3));
+    Ht = max(P(:,3));
+    TreeHeight = double(Ht-Hb);
+    Hei = P(:,3)-Hb;
+
+    % Select a section (0.02-0.1*tree_height) from the bottom of the tree
+    hSecTop = min(4,0.1*TreeHeight);
+    hSecBot = 0.02*TreeHeight;
+    hSec = hSecTop-hSecBot;
+    Sec = Hei > hSecBot & Hei < hSecTop;
+    StemBot = P(Sec,1:3);
+
+    % Estimate stem axis (point and direction)
+    AxisPoint = mean(StemBot);
+    V = StemBot-AxisPoint;
+    V = normalize(V);
+    AxisDir = optimal_parallel_vector(V);
+
+    % Estimate stem diameter
+    d = distances_to_line(StemBot,AxisDir,AxisPoint);
+    Rstem = double(median(d));
+
+    % Point resolution (distance between points)
+    Res = sqrt((2*pi*Rstem*hSec)/size(StemBot,1));
+
+    %% Define the PatchDiam parameters
+    % PatchDiam1 is around stem radius divided by 3.
+    pd1 = Rstem/3;%*max(1,TreeHeight/20);
+    if nPD1 == 1
+      inputs(i).PatchDiam1 = pd1;
+    else
+      n = nPD1;
+      inputs(i).PatchDiam1 = linspace((0.90-(n-2)*0.1)*pd1,(1.10+(n-2)*0.1)*pd1,n);
+    end
+
+    % PatchDiam2Min is around stem radius divided by 6 and increased for
+    % over 20 m heigh trees.
+    pd2 = Rstem/6*min(1,20/TreeHeight);
+    if nPD2Min == 1
+      inputs(i).PatchDiam2Min = pd2;
+    else
+      n = nPD2Min;
+      inputs(i).PatchDiam2Min = linspace((0.90-(n-2)*0.1)*pd2,(1.10+(n-2)*0.1)*pd2,n);
+    end
+
+    % PatchDiam2Max is around stem radius divided by 2.5.
+    pd3 = Rstem/2.5;%*max(1,TreeHeight/20);
+    if nPD2Max == 1
+      inputs(i).PatchDiam2Max = pd3;
+    else
+      n = nPD2Max;
+      inputs(i).PatchDiam2Max = linspace((0.90-(n-2)*0.1)*pd3,(1.10+(n-2)*0.1)*pd3,n);
+    end
+
+    % Define the BallRad parameters:
+    inputs(i).BallRad1 = max([inputs(i).PatchDiam1+1.5*Res;
+      min(1.25*inputs(i).PatchDiam1,inputs(i).PatchDiam1+0.025)]);
+    inputs(i).BallRad2 = max([inputs(i).PatchDiam2Max+1.25*Res;
+      min(1.2*inputs(i).PatchDiam2Max,inputs(i).PatchDiam2Max+0.025)]);
+
+    %plot_point_cloud(P,1,1)
   end
+else
+  P = Clouds;
+  nt = 1;
+  inputs(nt).PatchDiam1 = 0;
+  i = 1;
+  % Only use P directly, never reference matobj or names
 
   %% Estimate the stem diameter close to bottom
   % Define height

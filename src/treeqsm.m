@@ -466,7 +466,14 @@ for h = 1:nd
         if inputs.savemat
           str = [inputs.name,'_t',num2str(inputs.tree),'_m',...
             num2str(inputs.model)];
-          save(['results/QSM_',str],'QSM')
+          if isfield(inputs, 'results_dir')
+            if ~exist(inputs.results_dir, 'dir')
+                mkdir(inputs.results_dir);
+            end
+            save(fullfile(inputs.results_dir, ['QSM_',str,'.mat']), 'QSM');
+          else
+            save(['results/QSM_',str],'QSM')
+          end
         end
         % text-format (.txt)
         if inputs.savetxt
@@ -496,9 +503,6 @@ for h = 1:nd
                 triangulation)
           else
             plot_models_segmentations(P,cover2,segment2,cylinder)
-          end
-          if nd > 1 || na > 1 || ni > 1
-            pause
           end
         end
       end
