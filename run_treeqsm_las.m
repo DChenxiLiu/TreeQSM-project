@@ -5,7 +5,10 @@
 clear all; close all; clc;
 
 %% Configuration
-% CHANGE THIS to your LAS file path
+% CHANGE THIS to your LAS file path 
+% For Windows users: 'C:\Users\c72liu\OneDrive - University of Waterloo\hullet\individualtree_hullet\208_off_individual_tree\208_GS0011.las'
+% For macOS users: '/Users/c72liu/Library/CloudStorage/OneDrive-UniversityofWaterloo/hullet/individualtree_hullet/208_off_individual_tree/208_GS0011.las'
+
 las_file = '/Users/doraliu/Library/CloudStorage/OneDrive-UniversityofWaterloo/hullet/individualtree_hullet/208_off_individual_tree/208_GS0011.las';
 
 % TreeQSM parameters
