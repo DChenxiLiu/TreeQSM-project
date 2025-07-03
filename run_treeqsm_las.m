@@ -9,7 +9,7 @@ clear all; close all; clc;
 % For Windows users: 'C:\Users\c72liu\OneDrive - University of Waterloo\hullet\individualtree_hullet\208_off_individual_tree\208_GS0011.las'
 % For macOS users: '/Users/c72liu/Library/CloudStorage/OneDrive-UniversityofWaterloo/hullet/individualtree_hullet/208_off_individual_tree/208_GS0011.las'
 
-las_file = '/Users/doraliu/Library/CloudStorage/OneDrive-UniversityofWaterloo/hullet/individualtree_hullet/208_off_individual_tree/208_GS0011.las';
+las_file = 'C:\Users\c72liu\OneDrive - University of Waterloo\hullet\individualtree_hullet\208_off_individual_tree\208_GS0011.las';
 
 % TreeQSM parameters
 downsample_threshold = 300000;  % Downsample if more than this many points
@@ -102,6 +102,7 @@ if visualize_single_tree
     title(sprintf('%s\n%d points', single_file, size(P,1)));
     xlabel('X (m)'); ylabel('Y (m)'); zlabel('Z (m)');
     axis equal; view(3); grid on; rotate3d on;
+    drawnow; % Force MATLAB to update the figure window
     
     % Parameter setup: automatic or manual
     % -------------------------------------------------------------
@@ -255,6 +256,43 @@ end
 
 results_table = cell2table(results_table, 'VariableNames', {'TreeID','Trial','PatchDiam1','PatchDiam2Min','PatchDiam2Max','DBHcm'});
 
+%% Step 4.5: Compare Training Set DBH with Hand Measurements
+% Read hand-measured DBH from Excel
+hand_dbh_file = fullfile(pwd, '208_off_DBH.xlsx'); % <-- look in project root
+if exist(hand_dbh_file, 'file')
+    hand_dbh_data = readtable(hand_dbh_file);
+    % Assume columns: TreeID, DBH (cm), adjust as needed
+    % Try to find the correct DBH column (case-insensitive)
+    dbh_col = find(strcmpi(hand_dbh_data.Properties.VariableNames, 'DBH'), 1);
+    if isempty(dbh_col)
+        error('Could not find DBH column in 208_off_DBH.xlsx');
+    end
+    % Merge by TreeID (case-insensitive)
+    [lia, locb] = ismember(lower(results_table.TreeID), lower(string(hand_dbh_data.TreeID)));
+    measured_dbh = nan(height(results_table),1);
+    measured_dbh(lia) = hand_dbh_data{locb(lia), dbh_col};
+    results_table.MeasuredDBHcm = measured_dbh;
+    % Only compare where measured DBH is available
+    valid_idx = ~isnan(measured_dbh);
+    est_dbh = results_table.DBHcm(valid_idx);
+    true_dbh = measured_dbh(valid_idx);
+    % Compute error metrics
+    abs_err = abs(est_dbh - true_dbh);
+    mae = mean(abs_err);
+    rmse = sqrt(mean((est_dbh - true_dbh).^2));
+    corrval = corr(est_dbh, true_dbh, 'rows','complete');
+    % Print summary
+    fprintf('\n=== Training Set DBH Comparison ===\n');
+    fprintf('N (with field DBH): %d\n', sum(valid_idx));
+    fprintf('MAE:  %.2f cm\n', mae);
+    fprintf('RMSE: %.2f cm\n', rmse);
+    fprintf('Correlation: %.2f\n', corrval);
+    % Optionally print table
+    disp(results_table(valid_idx, {'TreeID','Trial','DBHcm','MeasuredDBHcm'}));
+else
+    warning('Hand-measured DBH file 208_off_DBH.xlsx not found in %s', pwd);
+end
+
 %% Step 5: QSM Reconstruction on Selected Tree (Demo)
 fprintf('\n========== Running TreeQSM ==========' );
 
@@ -267,12 +305,18 @@ elapsed = toc;
 fprintf('QSM reconstruction completed in %.1f seconds\n', elapsed);
 
 %% Step 6: Save & Display QSM Results
+
+% Define and create results directory if it doesn't exist
+results_dir = fullfile(pwd, 'results_dir');
+if ~exist(results_dir, 'dir')
+    mkdir(results_dir);
+end
+
 if ~isempty(QSM)
     for k = 1:numel(QSM)
         % Manual save to results directory for each model
         save_filename = sprintf('QSM_%s_t1_m%d.mat', filename, k);
         save_path = fullfile(results_dir, save_filename);
-        save(save_path, 'QSM');
         
         fprintf('\n========== Tree Measurements (Model %d) ==========' , k);
         fprintf('\nTree Height:        %.2f m\n', QSM(k).treedata.TreeHeight);
