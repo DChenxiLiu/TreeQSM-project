@@ -257,7 +257,7 @@ end
 results_table = cell2table(results_table, 'VariableNames', {'TreeID','Trial','PatchDiam1','PatchDiam2Min','PatchDiam2Max','DBHcm'});
 
 %% Step 4.5: Compare Training Set DBH with Hand Measurements
-% Read hand-measured DBH from Excel
+% Read hand-measured DBH from Excel file
 hand_dbh_file = fullfile(pwd, '208_off_DBH.xlsx'); % <-- look in project root
 if exist(hand_dbh_file, 'file')
     hand_dbh_data = readtable(hand_dbh_file);
