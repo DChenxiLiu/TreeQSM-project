@@ -13,7 +13,7 @@ downsample_threshold = 300000;  % Downsample if more than this many points
 filter_point_cloud = true;      % Apply filtering to remove noise
 auto_parameters = true;         % Use automatic parameter selection
 
-%% Step 0: List all LAS files and split into train/test sets
+%% Step 0: Data Preparation – List and split LAS files
 las_folder = fileparts(las_file); % Use the same folder as 208_GS0007.las
 las_files_struct = dir(fullfile(las_folder, '*.las'));
 las_files = {las_files_struct.name};
@@ -37,192 +37,119 @@ fprintf('Testing set: %d files\n', numel(test_files));
 %     % ... load and process this_file ...
 % end
 
-%% Step 1: Setup
+%% Step 1: Environment Setup – Add TreeQSM paths
 addpath(genpath('src'));
 disp('TreeQSM paths added');
 
-%% Step 2: Load LAS file
-disp(['Loading LAS file: ', las_file]);
+%% Step 2: Single Tree Visualization & Parameter Setup
+% This section is for visualization and parameter setup demonstration only.
+% It does NOT affect the batch Monte Carlo search below.
 
-try
-    % Create LAS file reader
-    lasReader = lasFileReader(las_file);
+% Set to true to visualize and inspect a single tree, false to skip this step
+visualize_single_tree = true; 
+
+if visualize_single_tree
+    disp('--- Single Tree Visualization and Parameter Setup ---');
     
-    % Read point cloud
+    % Select the LAS file to visualize
+    single_file = las_file;
+    
+    % Read the LAS file using MATLAB's Lidar Toolbox
+    lasReader = lasFileReader(single_file);
     ptCloud = readPointCloud(lasReader);
-    P = double(ptCloud.Location);
+    P = double(ptCloud.Location); % Extract XYZ coordinates
     
-    % Debug: Check initial dimensions
-    fprintf('Initial point cloud size: %d x %d\n', size(P));
-    if size(P, 2) ~= 3
-        error('Point cloud should have 3 columns (X,Y,Z), but has %d columns', size(P, 2));
-    end
-    
-    % Remove invalid points
+    % Remove any invalid points (NaN or Inf)
     valid = all(isfinite(P), 2);
     P = P(valid, :);
     
-    % Debug: Check dimensions after filtering invalid points
-    fprintf('After removing invalid points: %d x %d\n', size(P));
+    % Center the point cloud at the origin
+    P_mean = mean(P);
+    P = P - P_mean;
     
-    disp(['Loaded ', num2str(size(P,1)), ' valid points']);
-    
-    % Display point cloud info
-    fprintf('\nPoint Cloud Statistics:\n');
-    fprintf('X range: %.2f to %.2f m\n', min(P(:,1)), max(P(:,1)));
-    fprintf('Y range: %.2f to %.2f m\n', min(P(:,2)), max(P(:,2)));
-    fprintf('Z range: %.2f to %.2f m\n', min(P(:,3)), max(P(:,3)));
-    
-catch ME
-    error(['Failed to load LAS file: ', ME.message]);
-end
-
-%% Step 3: Preprocessing
-% Center the point cloud
-P_mean = mean(P);
-P = P - P_mean;
-disp('Point cloud centered');
-
-% Debug: Check dimensions after centering
-fprintf('After centering: %d x %d\n', size(P));
-
-% Downsample if needed
-if size(P,1) > downsample_threshold
-    fprintf('Downsampling from %d to %d points...\n', size(P,1), downsample_threshold);
-    idx = randperm(size(P,1), downsample_threshold);
-    P = P(idx, :);
-    
-    % Debug: Check dimensions after downsampling
-    fprintf('After downsampling: %d x %d\n', size(P));
-end
-
-%% Step 4: Filter point cloud (optional)
-if filter_point_cloud
-    disp('Filtering point cloud...');
-    
-    % Define filter parameters
-    filter_inputs.filter.k = 15;            % k-nearest neighbors
-    filter_inputs.filter.nsigma = 2;        % Standard deviation threshold
-    filter_inputs.filter.radius = 0;        % Radius-based (0 = disabled)
-    filter_inputs.filter.ncomp = 5;         % Minimum component size
-    filter_inputs.filter.PatchDiam1 = 0.05;
-    filter_inputs.filter.BallRad1 = 0.075;
-    filter_inputs.filter.EdgeLength = 0;    % Voxel downsampling (0 = disabled)
-    filter_inputs.filter.plot = 0;
-    
-    P_original = P;
-    
-    % Debug: Check what filtering returns
-    filter_result = filtering(P, filter_inputs);
-    fprintf('Filtering returned: %d x %d\n', size(filter_result));
-    
-    % Check if filtering returned the expected format
-    if size(filter_result, 2) == 3
-        P = filter_result;
-        fprintf('Filtering removed %d points (%.1f%%)\n', ...
-            size(P_original,1) - size(P,1), ...
-            (size(P_original,1) - size(P,1))/size(P_original,1)*100);
-    else
-        % If filtering didn't return expected format, skip filtering
-        warning('Filtering function returned unexpected format. Skipping filtering step.');
-        fprintf('Expected 3 columns, got %d columns\n', size(filter_result, 2));
-        P = P_original;
+    % Downsample the point cloud if it exceeds the threshold
+    if size(P,1) > downsample_threshold
+        idx = randperm(size(P,1), downsample_threshold);
+        P = P(idx, :);
     end
     
-    % Debug: Check dimensions after filtering
-    fprintf('After filtering: %d x %d\n', size(P));
-end
-
-%% Step 5: Visualize point cloud
-% Validate point cloud dimensions before plotting
-if size(P, 2) ~= 3
-    error('Point cloud must have 3 columns (X,Y,Z) for plotting, but has %d columns', size(P, 2));
-end
-
-if size(P, 1) == 0
-    error('Point cloud is empty after processing');
-end
-
-figure('Name', 'LAS Point Cloud', 'Position', [100, 100, 800, 600]);
-plot3(P(:,1), P(:,2), P(:,3), '.', 'MarkerSize', 1, 'Color', [0.2 0.6 0.2]);
-title(sprintf('%s\n%d points', las_file, size(P,1)));
-xlabel('X (m)'); ylabel('Y (m)'); zlabel('Z (m)');
-axis equal; view(3); grid on;
-rotate3d on;
-
-%% Step 6: Setup TreeQSM parameters
-if auto_parameters
-    % Automatic parameter selection based on tree size
-    disp('Using automatic parameter selection...');
-    inputs = define_input(P, 2, 3, 2);  % 2 values for each parameter
+    % Optionally filter the point cloud to remove noise
+    if filter_point_cloud
+        % Filtering is now optional and can be skipped by setting filter_point_cloud = false
+        % To skip filtering, set filter_point_cloud = false in the configuration section above.
+        % If you want to force skip filtering here, comment out or remove the block below.
+        % Example filter parameters (uncomment and adjust as needed):
+        % filter_inputs.filter.k = 25;
+        % filter_inputs.filter.nsigma = 3;
+        % filter_inputs.filter.radius = 0;
+        % filter_inputs.filter.ncomp = 2;
+        % filter_inputs.filter.PatchDiam1 = 0.05;
+        % filter_inputs.filter.BallRad1 = 0.075;
+        % filter_inputs.filter.EdgeLength = 0;
+        % filter_inputs.filter.plot = 1;
+        % filter_result = filtering(P, filter_inputs);
+        % if size(filter_result,2) == 3
+        %     P = filter_result;
+        % end
+    end
     
-    % Validate automatic parameters
-    if isnan(inputs.PatchDiam1(1)) || isnan(inputs.PatchDiam2Min(1)) || isnan(inputs.PatchDiam2Max(1))
-        warning('Automatic parameter selection failed (returned NaN). Using manual parameters instead.');
-        auto_parameters = false;  % Switch to manual mode
-    else
-        fprintf('Automatic parameters:\n');
+    % Visualize the processed point cloud
+    figure('Name', 'LAS Point Cloud', 'Position', [100, 100, 800, 600]);
+    plot3(P(:,1), P(:,2), P(:,3), '.', 'MarkerSize', 1, 'Color', [0.2 0.6 0.2]);
+    title(sprintf('%s\n%d points', single_file, size(P,1)));
+    xlabel('X (m)'); ylabel('Y (m)'); zlabel('Z (m)');
+    axis equal; view(3); grid on; rotate3d on;
+    
+    % Parameter setup: automatic or manual
+    % -------------------------------------------------------------
+    % Parameter selection: automatic or manual
+    % This block sets QSM parameters either automatically (using define_input)
+    % or manually based on point density if automatic selection fails or is disabled.
+    % -------------------------------------------------------------
+    if auto_parameters
+        disp('Using automatic parameter selection...');
+        inputs = define_input(P, 2, 3, 2);
+        % If automatic selection fails, fall back to manual
+        if isnan(inputs.PatchDiam1(1)) || isnan(inputs.PatchDiam2Min(1)) || isnan(inputs.PatchDiam2Max(1))
+            warning('Automatic parameter selection failed (returned NaN). Using manual parameters instead.');
+            auto_parameters = false;
+        else
+            fprintf('Automatic parameters:\n');
+            fprintf('  PatchDiam1: %.3f, %.3f\n', inputs.PatchDiam1);
+            fprintf('  PatchDiam2Min: %.3f, %.3f\n', inputs.PatchDiam2Min);
+            fprintf('  PatchDiam2Max: %.3f, %.3f\n', inputs.PatchDiam2Max);
+        end
+    end
+    
+    % Manual parameter setup if auto failed or not selected
+    if ~auto_parameters
+        disp('Using manual parameters...');
+        % Estimate point density for parameter selection
+        point_density = size(P,1) / (range(P(:,1)) * range(P(:,2)) * range(P(:,3)));
+        if point_density > 50000
+            % High density: use smaller patch sizes
+            inputs.PatchDiam1 = [0.05 0.10];
+            inputs.PatchDiam2Min = [0.02 0.04 0.06];
+            inputs.PatchDiam2Max = [0.05 0.12];
+        else
+            % Lower density: use larger patch sizes
+            inputs.PatchDiam1 = [0.08 0.12];
+            inputs.PatchDiam2Min = [0.04 0.05 0.06];
+            inputs.PatchDiam2Max = [0.07 0.10];
+        end
+        inputs.BallRad1 = inputs.PatchDiam1 + 0.015;
+        inputs.BallRad2 = inputs.PatchDiam2Max + 0.01;
+        fprintf('Manual parameters:\n');
         fprintf('  PatchDiam1: %.3f, %.3f\n', inputs.PatchDiam1);
         fprintf('  PatchDiam2Min: %.3f, %.3f\n', inputs.PatchDiam2Min);
         fprintf('  PatchDiam2Max: %.3f, %.3f\n', inputs.PatchDiam2Max);
     end
+    
+    % (Optional) Run TreeQSM on this single tree for demo
+    % QSM = treeqsm(P, inputs);
 end
 
-if ~auto_parameters
-    % Manual parameters - suitable for medium-large trees
-    disp('Using manual parameters...');
-    
-    % Calculate reasonable parameters based on point cloud size
-    point_density = size(P,1) / (range(P(:,1)) * range(P(:,2)) * range(P(:,3)));
-    
-    if point_density > 50000  % High density
-        inputs.PatchDiam1 = [0.05 0.10];
-        inputs.PatchDiam2Min = [0.02 0.04 0.06];
-        inputs.PatchDiam2Max = [0.05 0.12];
-    else  % Medium density
-        inputs.PatchDiam1 = [0.08 0.12];
-        inputs.PatchDiam2Min = [0.04 0.05 0.06];
-        inputs.PatchDiam2Max = [0.07 0.10];
-    end
-    
-    inputs.BallRad1 = inputs.PatchDiam1 + 0.015;
-    inputs.BallRad2 = inputs.PatchDiam2Max + 0.01;
-    
-    fprintf('Manual parameters:\n');
-    fprintf('  PatchDiam1: %.3f, %.3f\n', inputs.PatchDiam1);
-    fprintf('  PatchDiam2Min: %.3f, %.3f\n', inputs.PatchDiam2Min);
-    fprintf('  PatchDiam2Max: %.3f, %.3f\n', inputs.PatchDiam2Max);
-end
-
-% Set other parameters
-inputs.OnlyTree = 1;
-inputs.Tria = 0;
-inputs.Dist = 1;
-inputs.MinCylRad = 0.0025;
-inputs.ParentCor = 1;
-inputs.TaperCor = 1;
-inputs.GrowthVolCor = 0;
-
-% Output settings
-[~, filename, ~] = fileparts(las_file);
-inputs.name = filename;
-inputs.tree = 1;
-inputs.model = 1;
-inputs.savemat = 1;
-inputs.savetxt = 0;
-inputs.plot = 0; % Disable QSM visualization
-inputs.disp = 1;
-
-% Get the directory of this script
-script_dir = fileparts(mfilename('fullpath'));
-results_dir = fullfile(script_dir, 'results');
-
-% Create results folder (ensure it exists before running treeqsm)
-if ~exist(results_dir, 'dir')
-    mkdir(results_dir);
-end
-
-%% Step 1: Preprocess all training point clouds first
+%% Step 3: Batch Preprocessing of Training Point Clouds
 preprocessed_P = cell(numel(train_files), 1);
 preprocessed_valid = false(numel(train_files), 1);
 
@@ -248,10 +175,10 @@ for i = 1:numel(train_files)
         end
         % Filter (optional)
         if filter_point_cloud
-            filter_inputs.filter.k = 15;
-            filter_inputs.filter.nsigma = 2;
+            filter_inputs.filter.k = 25;         % More neighbors for robust outlier detection
+            filter_inputs.filter.nsigma = 3;      % Less strict outlier removal
             filter_inputs.filter.radius = 0;
-            filter_inputs.filter.ncomp = 5;
+            filter_inputs.filter.ncomp = 2;       % Keep smaller components
             filter_inputs.filter.PatchDiam1 = 0.05;
             filter_inputs.filter.BallRad1 = 0.075;
             filter_inputs.filter.EdgeLength = 0;
@@ -269,8 +196,8 @@ for i = 1:numel(train_files)
     end
 end
 
-%% Step 2: Monte Carlo parameter search on training set
-num_trials = 20; % Number of random parameter sets to try per tree
+%% Step 4: Monte Carlo Parameter Search (Training Set)
+num_trials = 2; % Number of random parameter sets to try per tree
 results_table = [];
 
 for i = 1:numel(train_files)
@@ -325,8 +252,8 @@ end
 
 results_table = cell2table(results_table, 'VariableNames', {'TreeID','Trial','PatchDiam1','PatchDiam2Min','PatchDiam2Max','DBHcm'});
 
-%% Step 7: Run TreeQSM
-fprintf('\n========== Running TreeQSM ==========\n');
+%% Step 5: QSM Reconstruction on Selected Tree (Demo)
+fprintf('\n========== Running TreeQSM ==========' );
 
 tic;
 
@@ -336,7 +263,7 @@ QSM = treeqsm(P, inputs);
 elapsed = toc;
 fprintf('QSM reconstruction completed in %.1f seconds\n', elapsed);
 
-%% Step 8: Save and Display results
+%% Step 6: Save & Display QSM Results
 if ~isempty(QSM)
     for k = 1:numel(QSM)
         % Manual save to results directory for each model
