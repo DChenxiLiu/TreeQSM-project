@@ -9,7 +9,7 @@ clear all; close all; clc;
 % For Windows users: 'C:\Users\c72liu\OneDrive - University of Waterloo\hullet\individualtree_hullet\208_off_individual_tree\208_GS0011.las'
 % For macOS users: '/Users/c72liu/Library/CloudStorage/OneDrive-UniversityofWaterloo/hullet/individualtree_hullet/208_off_individual_tree/208_GS0011.las'
 
-las_file = 'C:\Users\c72liu\OneDrive - University of Waterloo\hullet\individualtree_hullet\208_off_individual_tree\208_GS0011.las';
+las_file = 'C:\Users\c72liu\OneDrive - University of Waterloo\hullet\individualtree_hullet\leaf_off_individual_tree\208_GS0011.las';
 
 % TreeQSM parameters
 downsample_threshold = 300000;  % Downsample if more than this many points
@@ -179,12 +179,13 @@ for i = 1:numel(train_files)
         end
         % Filter (optional)
         if filter_point_cloud
-            filter_inputs.filter.k = 25;         % More neighbors for robust outlier detection
-            filter_inputs.filter.nsigma = 3;      % Less strict outlier removal
+            % Less aggressive filtering for low-res data
+            filter_inputs.filter.k = 15;         % Fewer neighbors, less smoothing
+            filter_inputs.filter.nsigma = 4;     % More tolerant to outliers
             filter_inputs.filter.radius = 0;
-            filter_inputs.filter.ncomp = 2;       % Keep smaller components
-            filter_inputs.filter.PatchDiam1 = 0.05;
-            filter_inputs.filter.BallRad1 = 0.075;
+            filter_inputs.filter.ncomp = 1;      % Keep largest component only
+            filter_inputs.filter.PatchDiam1 = 0.03; % Smaller patch for filtering
+            filter_inputs.filter.BallRad1 = 0.045;  % Smaller ball for filtering
             filter_inputs.filter.EdgeLength = 0;
             filter_inputs.filter.plot = 0;
             filter_result = filtering(P, filter_inputs);
@@ -211,47 +212,47 @@ for i = 1:numel(train_files)
     P = preprocessed_P{i};
     [~, filename, ~] = fileparts(train_files{i});
     fprintf('\n--- Training Tree %d/%d: %s ---\n', i, numel(train_files), train_files{i});
-    for trial = 1:num_trials
-        % Randomly sample parameters within reasonable ranges
-        PatchDiam1 = rand(1,2)*0.1 + 0.03; % [0.03, 0.13]
-        PatchDiam2Min = rand(1,2)*0.04 + 0.01; % [0.01, 0.05]
-        PatchDiam2Max = rand(1,2)*0.06 + 0.03; % [0.03, 0.09]
-        BallRad1 = PatchDiam1 + 0.015;
-        BallRad2 = PatchDiam2Max + 0.01;
-        % Set up inputs
-        inputs.PatchDiam1 = PatchDiam1;
-        inputs.PatchDiam2Min = PatchDiam2Min;
-        inputs.PatchDiam2Max = PatchDiam2Max;
-        inputs.BallRad1 = BallRad1;
-        inputs.BallRad2 = BallRad2;
-        inputs.OnlyTree = 1;
-        inputs.Tria = 0;
-        inputs.Dist = 1;
-        inputs.MinCylRad = 0.0025;
-        inputs.ParentCor = 1;
-        inputs.TaperCor = 1;
-        inputs.GrowthVolCor = 0;
-        inputs.name = filename;
-        inputs.tree = 1;
-        inputs.model = trial;
-        inputs.savemat = 0;
-        inputs.savetxt = 0;
-        inputs.plot = 0;
-        inputs.disp = 0;
-        % Run TreeQSM
-        try
-            QSM = treeqsm(P, inputs);
-            if ~isempty(QSM)
-                dbh = QSM(1).treedata.DBHqsm * 100; % cm
-            else
-                dbh = NaN;
-            end
-        catch
+for trial = 1:num_trials
+    % Randomly sample larger parameters for low-res data
+    PatchDiam1 = rand(1,2)*0.06 + 0.08;      % [0.08, 0.14]
+    PatchDiam2Min = rand(1,2)*0.03 + 0.04;   % [0.04, 0.07]
+    PatchDiam2Max = rand(1,2)*0.04 + 0.07;   % [0.07, 0.11]
+    BallRad1 = PatchDiam1 + 0.02;
+    BallRad2 = PatchDiam2Max + 0.015;
+    % Set up inputs
+    inputs.PatchDiam1 = PatchDiam1;
+    inputs.PatchDiam2Min = PatchDiam2Min;
+    inputs.PatchDiam2Max = PatchDiam2Max;
+    inputs.BallRad1 = BallRad1;
+    inputs.BallRad2 = BallRad2;
+    inputs.OnlyTree = 1;
+    inputs.Tria = 0;
+    inputs.Dist = 1;
+    inputs.MinCylRad = 0.0025;
+    inputs.ParentCor = 1;
+    inputs.TaperCor = 1;
+    inputs.GrowthVolCor = 0;
+    inputs.name = filename;
+    inputs.tree = 1;
+    inputs.model = trial;
+    inputs.savemat = 0;
+    inputs.savetxt = 0;
+    inputs.plot = 0;
+    inputs.disp = 0;
+    % Run TreeQSM
+    try
+        QSM = treeqsm(P, inputs);
+        if ~isempty(QSM)
+            dbh = QSM(1).treedata.DBHqsm * 100; % cm
+        else
             dbh = NaN;
         end
-        % Store results
-        results_table = [results_table; {filename, trial, PatchDiam1, PatchDiam2Min, PatchDiam2Max, dbh}];
+    catch
+        dbh = NaN;
     end
+    % Store results
+    results_table = [results_table; {filename, trial, PatchDiam1, PatchDiam2Min, PatchDiam2Max, dbh}];
+end
 end
 
 results_table = cell2table(results_table, 'VariableNames', {'TreeID','Trial','PatchDiam1','PatchDiam2Min','PatchDiam2Max','DBHcm'});
